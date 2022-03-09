@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--lr', type=float, default=0.001, help='Initial learning rate.')
 parser.add_argument('--hidden', type=int, default=128, help='Number of hidden units.')
 parser.add_argument('--embedding', type=int, default=32, help='Dimensions of embeddings.')
-parser.add_argument('--dropout', type=float, default=0.7, help='Dropout rate (1 - keep probability).')
+parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
 
 parser.add_argument('--epochs', type=int, default=200, help='Number of epochs to train.')
@@ -78,6 +78,13 @@ for run in range(1000):
         adj = adj + adj.T + np.eye(adj.shape[0])
         adj_norm = normalize(adj)
 
+        train_mask = sp.coo_matrix(
+            (np.ones(diseasePair_test.shape[0]), (diseasePair_test[:, 0], diseasePair_test[:, 1])),
+            dtype=float, shape=(len(disease_order), len(disease_order))).toarray()
+        train_mask = train_mask + train_mask.T + np.eye(train_mask.shape[0])
+        train_mask_numpy = np.where(train_mask == 0, train_mask + 1, train_mask - 1).flatten()
+        train_mask_tensor = torch.from_numpy(train_mask).to(device)
+
         # Model and optimizer
         model = GCN(nfeat=phenotype_df.shape[1], nhid=args.hidden, n_emb=args.embedding, dropout=args.dropout)
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -103,9 +110,10 @@ for run in range(1000):
             innerProd, embedding = model(features, adj_norm)
             adj_pred = torch.sigmoid(innerProd)
 
-            auroc_train = roc_auc_score(adj.cpu().numpy().flatten(), adj_pred.cpu().detach().numpy().flatten())
-            precision, recall, thresholds = precision_recall_curve(adj.cpu().numpy().flatten(),
-                                                                   adj_pred.detach().cpu().numpy().flatten())
+            auroc_train = roc_auc_score(adj.cpu().numpy().flatten() * train_mask_numpy,
+                                        adj_pred.cpu().detach().numpy().flatten() * train_mask_numpy)
+            precision, recall, thresholds = precision_recall_curve(adj.cpu().numpy().flatten() * train_mask_numpy,
+                                                                   adj_pred.detach().cpu().numpy().flatten() * train_mask_numpy)
             auprc_train = auc(recall, precision)
 
             print('Epoch: {:04d}'.format(epoch + 1),

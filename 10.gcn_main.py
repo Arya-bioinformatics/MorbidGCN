@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--lr', type=float, default=0.001, help='Initial learning rate.')
 parser.add_argument('--hidden', type=int, default=128, help='Number of hidden units.')
 parser.add_argument('--embedding', type=int, default=32, help='Dimensions of embeddings.')
-parser.add_argument('--dropout', type=float, default=0.7, help='Dropout rate (1 - keep probability).')
+parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
 parser.add_argument('--weight_decay', type=float, default=5e-4, help='Weight decay (L2 loss on parameters).')
 
 parser.add_argument('--epochs', type=int, default=200, help='Number of epochs to train.')
@@ -52,11 +52,18 @@ for i in data_dict:
     test_edge = data['test_edge']
     test_edge_false = data['test_edge_false']
 
+    train_mask_edge = torch.cat([val_edge, val_edge_false, test_edge, test_edge_false], dim=0)
+    train_mask = torch.sparse_coo_tensor(train_mask_edge.T, torch.ones(train_mask_edge.shape[0]), adj.shape).to_dense()
+    train_mask = torch.maximum(train_mask, train_mask.T) + torch.eye(adj.shape[0])
+    train_mask_tensor = torch.where(train_mask == 0, train_mask + 1, train_mask - 1)
+    train_mask_numpy = train_mask_tensor.numpy().flatten()
+
 
     # Model and optimizer
     model = GCN(nfeat=features.shape[1], nhid=args.hidden, n_emb=args.embedding, dropout=args.dropout)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    bce_loss = torch.nn.BCEWithLogitsLoss(reduction='mean')
+    bce_loss = torch.nn.BCEWithLogitsLoss(reduction='mean', weight=train_mask_tensor.to(device).view(-1))
+    bce_loss_eval = torch.nn.BCEWithLogitsLoss(reduction='mean')
 
     model.to(device)
     features = features.to(device)
@@ -83,12 +90,13 @@ for i in data_dict:
         innerProd, embedding = model(features, adj_norm)
         adj_pred = torch.sigmoid(innerProd)
 
-
-        auroc_train = roc_auc_score(adj.cpu().numpy().flatten(), adj_pred.detach().cpu().numpy().flatten())
-        precision, recall, thresholds = precision_recall_curve(adj.cpu().numpy().flatten(), adj_pred.detach().cpu().numpy().flatten())
+        auroc_train = roc_auc_score(adj.cpu().numpy().flatten() * train_mask_numpy,
+                                    adj_pred.detach().cpu().numpy().flatten() * train_mask_numpy)
+        precision, recall, thresholds = precision_recall_curve(adj.cpu().numpy().flatten() * train_mask_numpy,
+                                                               adj_pred.detach().cpu().numpy().flatten() * train_mask_numpy)
         auprc_train = auc(recall, precision)
 
-        auroc_val, auprc_val, loss_val = evaluate_embeddings(embedding, val_edge, val_edge_false, bce_loss)
+        auroc_val, auprc_val, loss_val = evaluate_embeddings(embedding, val_edge, val_edge_false, bce_loss_eval)
         print('Epoch: {:04d}'.format(epoch + 1),
               'loss_train: {:.4f}'.format(loss_train.item()),
               'auroc_train: {:.4f}'.format(auroc_train.item()),
@@ -100,7 +108,7 @@ for i in data_dict:
 
 
     def test(embedding):
-        auroc_test, auprc_test, loss_test = evaluate_embeddings(embedding, test_edge, test_edge_false, bce_loss)
+        auroc_test, auprc_test, loss_test = evaluate_embeddings(embedding, test_edge, test_edge_false, bce_loss_eval)
         print('Test set results:',
               'auroc= {:.4f}'.format(auroc_test.item()),
               'auprc= {:.4f}'.format(auprc_test.item()),
