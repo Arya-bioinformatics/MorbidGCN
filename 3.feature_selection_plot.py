@@ -16,6 +16,13 @@ import rbo
 
 
 
+
+def sigmoid(x):
+    s = 1 / (1 + np.exp(-x))
+    return s
+
+
+
 def get_selection_result(dataset, z_threshold=0.001, outfile='a.csv'):
     result = []
     file_list = os.listdir('feature_selection_result/' + dataset)
@@ -344,7 +351,7 @@ def plot_selectedPhe_performance(dataset, lmd, z_threshold, outpath):
 
         # prediction of selected phenotypes
         data = features.loc[:, features.columns.isin(selected_phenotypes)].values
-        adj_pred = data.dot(data.T)
+        adj_pred = sigmoid(data.dot(data.T))
         label_pred = []
         label_true = []
         for code1_index, code2_index, label in df1.values.tolist():
@@ -356,7 +363,7 @@ def plot_selectedPhe_performance(dataset, lmd, z_threshold, outpath):
 
         # prediction of randomly selected phenotypes from all
         data = features.loc[:, features.columns.isin(random_phenotypes_fromAll)].values
-        adj_pred = data.dot(data.T)
+        adj_pred = sigmoid(data.dot(data.T))
         label_pred = []
         label_true = []
         for code1_index, code2_index, label in df1.values.tolist():
@@ -368,7 +375,7 @@ def plot_selectedPhe_performance(dataset, lmd, z_threshold, outpath):
 
         # prediction of randomly selected phenotypes from remain
         data = features.loc[:, features.columns.isin(random_phenotypes_fromRemain)].values
-        adj_pred = data.dot(data.T)
+        adj_pred = sigmoid(data.dot(data.T))
         label_pred = []
         label_true = []
         for code1_index, code2_index, label in df1.values.tolist():
@@ -380,7 +387,7 @@ def plot_selectedPhe_performance(dataset, lmd, z_threshold, outpath):
 
         # prediction of all phenotypes
         data = features.loc[:, :].values
-        adj_pred = data.dot(data.T)
+        adj_pred = sigmoid(data.dot(data.T))
         label_pred = []
         label_true = []
         for code1_index, code2_index, label in df1.values.tolist():

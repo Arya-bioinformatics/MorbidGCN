@@ -83,6 +83,170 @@ def get_novel_multimorbidity(dataset):
 
 
 
+def plot_novelMultimorbidity_topologySimilarity(dataset='UKB', outfile='fig_s3_1.pdf'):
+    # phenotype data
+    phenotype_df = pd.read_csv('data/disease_phenotype_score_data_processed.csv', index_col=0)
+    phenotype_df.index = [index[:3] for index in phenotype_df.index]
+
+    if dataset == 'UKB':
+        # UKB comorbidity data
+        comorbidity_df = pd.read_table('data/comorbidity_filter_firstOccur_timeWindow.txt')[
+            ['ICD10 code1', 'ICD10 code2']]
+        comorbidity_df.columns = ['code1', 'code2']
+    else:
+        # Hidalgo comorbidity data
+        comorbidity_df = pd.read_csv('data/hidalgo_multimorbidity_fdr.csv')
+
+
+    disease_intersection = set(phenotype_df.index) & (set(comorbidity_df['code1']) | set(comorbidity_df['code2']))
+    comorbidity_df = comorbidity_df[
+        comorbidity_df['code1'].isin(disease_intersection) & comorbidity_df['code2'].isin(disease_intersection)]
+    disease_order = list(set(comorbidity_df['code1']) | set(comorbidity_df['code2']))
+    phenotype_df = phenotype_df.reindex(disease_order)
+
+    edge_list = list(zip(comorbidity_df['code1'], comorbidity_df['code2']))
+
+    G = nx.Graph()
+    G.add_edges_from(edge_list)
+
+    novel_multimorbidity = set()
+    if dataset == 'UKB':
+        df = pd.read_csv('ukb_novel_multimorbidity.csv')
+    else:
+        df = pd.read_csv('hudine_novel_multimorbidity.csv')
+    for each in df['code']:
+        code1, code2 = each.split('*')
+        novel_multimorbidity.add((code1, code2))
+
+    non_multimorbidity = set()
+    for code1, code2 in combinations(disease_order, 2):
+        if ((code1, code2) in set(edge_list)) | ((code2, code1) in set(edge_list)):
+            continue
+        elif ((code1, code2) in novel_multimorbidity) | ((code2, code1) in novel_multimorbidity):
+            continue
+        else:
+            non_multimorbidity.add((code1, code2))
+
+    list1 = []
+    for code1, code2 in novel_multimorbidity:
+        set1 = set(nx.single_source_shortest_path(G, code1, 1).keys())
+        set2 = set(nx.single_source_shortest_path(G, code2, 1).keys())
+        list1.append(len(set1 & set2) / len(set1 | set2))
+
+    list2 = []
+    for code1, code2 in non_multimorbidity:
+        set1 = set(nx.single_source_shortest_path(G, code1, 1).keys())
+        set2 = set(nx.single_source_shortest_path(G, code2, 1).keys())
+        list2.append(len(set1 & set2) / len(set1 | set2))
+
+    print(ttest_ind(list1, list2))
+
+    print(np.mean(list1), np.mean(list2))
+
+    plt.figure(figsize=(5, 4))
+    sns.distplot(list1, kde=True, label='novel_multimorbidity')
+    sns.distplot(list2, kde=True, label='non-multimorbidity')
+    plt.legend()
+    if dataset == 'UKB':
+        plt.title('UKB dataset')
+    else:
+        plt.title('HuDiNe dataset')
+    plt.ylabel('Density of topology similarity scores')
+    plt.savefig(outfile, bbox_inches='tight')
+    plt.show()
+
+
+
+
+def plot_novelMultimorbidity_phenotypeSimilarity(dataset='UKB', outfile='fig_s3_2.pdf'):
+    # phenotype data
+    phenotype_df = pd.read_csv('data/disease_phenotype_score_data_processed.csv', index_col=0)
+    phenotype_df.index = [index[:3] for index in phenotype_df.index]
+
+    # UKB comorbidity data
+    if dataset == 'UKB':
+        comorbidity_df = pd.read_table('data/comorbidity_filter_firstOccur_timeWindow.txt')[
+            ['ICD10 code1', 'ICD10 code2']]
+        comorbidity_df.columns = ['code1', 'code2']
+        df = pd.read_csv('a1.csv')
+        df.columns = ['Phenotype', 'score']
+        selected_phenotype = set(df['Phenotype'])
+    else:
+        # Hidalgo comorbidity data
+        comorbidity_df = pd.read_csv('data/hidalgo_multimorbidity_fdr.csv')
+        df = pd.read_csv('a2.csv')
+        df.columns = ['Phenotype', 'score']
+        selected_phenotype = set(df['Phenotype'])
+
+    disease_intersection = set(phenotype_df.index) & (set(comorbidity_df['code1']) | set(comorbidity_df['code2']))
+    comorbidity_df = comorbidity_df[
+        comorbidity_df['code1'].isin(disease_intersection) & comorbidity_df['code2'].isin(disease_intersection)]
+    disease_order = list(set(comorbidity_df['code1']) | set(comorbidity_df['code2']))
+    disease_index = {v: i for i, v in enumerate(disease_order)}
+    phenotype_df = phenotype_df.reindex(disease_order)
+
+    features = np.concatenate(
+        [phenotype_df[phenotype_df > 0].fillna(0).values, -phenotype_df[phenotype_df < 0].fillna(0).values], axis=-1)
+    scaler = MinMaxScaler()
+    features = scaler.fit_transform(features)
+    features = pd.DataFrame(features)
+    features.columns = [col + '*pos' for col in phenotype_df.columns] + [col + '*neg' for col in phenotype_df.columns]
+    features.index = phenotype_df.index
+    features = features.loc[:, features.columns.isin(selected_phenotype)]
+
+    data = features.values
+    adj = data.dot(data.T)
+
+    edge_list = list(zip(comorbidity_df['code1'], comorbidity_df['code2']))
+    novel_multimorbidity = set()
+    if dataset == 'UKB':
+        df = pd.read_csv('ukb_novel_multimorbidity.csv')
+    else:
+        df = pd.read_csv('hudine_novel_multimorbidity.csv')
+    for each in df['code']:
+        code1, code2 = each.split('*')
+        novel_multimorbidity.add((code1, code2))
+
+    non_multimorbidity = set()
+    for code1, code2 in combinations(disease_order, 2):
+        if ((code1, code2) in set(edge_list)) | ((code2, code1) in set(edge_list)):
+            continue
+        elif ((code1, code2) in novel_multimorbidity) | ((code2, code1) in novel_multimorbidity):
+            continue
+        else:
+            non_multimorbidity.add((code1, code2))
+
+    # similarity for novel multimorbidity
+    list1 = []
+    for i, (code1, code2) in enumerate(novel_multimorbidity):
+        print(i, 'novel_multimorbidity')
+        id1 = disease_index[code1]
+        id2 = disease_index[code2]
+        list1.append(adj[id1, id2])
+
+    # similarity for non-multimorbidity
+    list2 = []
+    for i, (code1, code2) in enumerate(non_multimorbidity):
+        id1, id2 = disease_index[code1], disease_index[code2]
+        list2.append(adj[id1, id2])
+
+    print(ttest_ind(list1, list2))
+    print(np.mean(list1), np.mean(list2))
+
+    plt.figure(figsize=(5, 4))
+    sns.distplot(list1, kde=True, label='novel_multimorbidity')
+    sns.distplot(list2, kde=True, label='non-multimorbidity')
+    plt.legend()
+    if dataset == 'UKB':
+        plt.title('UKB dataset')
+    else:
+        plt.title('HuDiNe dataset')
+    plt.ylabel('Density of phenotype similarity scores')
+    plt.savefig(outfile, bbox_inches='tight')
+    plt.show()
+
+
+
 get_PredLabel('UKB')
 get_PredLabel('HuDiNe')
 ukb_novel_multimorbidty, ukb_known_multimorbidty, ukb_disease = get_novel_multimorbidity('UKB')
@@ -246,6 +410,15 @@ patches, text1, text2 = plt.pie(sizes, explode, labels, colors, autopct='%3.2f%%
 plt.title('Novel multimorbidities in the HuDiNe dataset')
 plt.savefig('fig4_e.pdf', bbox_inches='tight')
 plt.show()
+
+
+
+# topological and phenotypic similarity of novel multimorbidity
+plot_novelMultimorbidity_topologySimilarity(dataset='UKB', outfile='fig_s3_1.pdf')
+plot_novelMultimorbidity_phenotypeSimilarity(dataset='UKB', outfile='fig_s3_1.pdf')
+
+
+
 
 
 print('ok')

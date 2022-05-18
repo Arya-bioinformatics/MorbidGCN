@@ -33,7 +33,7 @@ The MorbidGCN framework mainly include four steps:
 * 12.feature_contribution_summary.py: source codes for generating figures 5a, b and s3, s4
 * 12.survival_analysis.py: source codes for prognosis analysis of multimorbidity occurrence
 * 12.survival_analysis_cases.py: source codes for figure 5c and s5
-* The file "Supplementary Tables.xlsx" contains Supplementary Tables S1-S10 referred in the original paper.
+* The file "Supplementary Tables.xlsx" contains Supplementary Tables S1-S11 referred in the original paper.
 
 
 ## Cite
